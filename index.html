@@ -365,7 +365,7 @@ function render(){
     for(const it of act)ul.append(itemRow(it));
     const card=h('section',{class:'card'},
       h('header',{},badge,title,delBtn),
-      act.length?ul:h('div',{class:'empty'},mine.length?'Everything here is done.':'Nothing yet. Add one above.'));
+      act.length?ul:h('div',{class:'empty'},mine.length?'Everything here is done.':'Nothing yet. Add one here.'));
     if(dn.length){
       const o=!!openDone[l.id];
       card.append(h('div',{class:'more'},
