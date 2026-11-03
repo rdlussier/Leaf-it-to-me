@@ -142,9 +142,10 @@ li.item .chk{width:38px;height:42px}
 .txt{padding:10px 2px;line-height:22px}
 .sheet .card{background:var(--t,#d0f2c3)}
 .chips{display:flex;flex-wrap:wrap;gap:8px;flex:1 1 100%}
-.chip{--moss:#356407;--card:#fffbe6;display:flex;align-items:center;gap:6px;min-height:44px;padding:0 14px 0 8px;border-radius:14px;border:3px solid #1b3405;background:var(--t);color:#1b3405;font-family:var(--display);font-weight:600;font-size:16px;opacity:.7}
+.chip{--moss:#356407;--card:#fffbe6;display:flex;align-items:center;gap:6px;min-height:44px;padding:0 14px 0 8px;border-radius:14px;border:3px solid #1b3405;background:var(--t);color:#1b3405;font-family:var(--display);font-weight:600;font-size:16px}
 .chip svg{width:22px;height:22px}
-.chip.on{opacity:1;outline:3px solid #fffbe6;outline-offset:1px;box-shadow:3px 3px 0 #1b3405}
+.chip.on{outline:3px solid #fffbe6;outline-offset:1px;box-shadow:3px 3px 0 #1b3405}
+.chip.on::after{content:"\2713";font-weight:700;margin-left:2px}
 .add .go{flex:1 1 100%;min-height:50px}
 .sbar{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .sheet .close{align-self:auto}
