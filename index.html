@@ -219,8 +219,8 @@ li.item .chk{width:38px;height:42px}
 (function(){
 const LS='leaf-store-v1',CFG='leaf-sync-v1',$=id=>document.getElementById(id);
 let store={lists:{},items:{}},cfg={token:'',repo:'rdlussier/Leaf-data',path:'data.json'};
-let dirty=false,lastSync=0,syncing=false,again=false,err='',timer=null,rev=0,tick=0;
-try{const s=JSON.parse(localStorage.getItem(LS)||'null');if(s&&s.lists&&s.items){store={lists:s.lists,items:s.items};dirty=!!s.dirty;lastSync=s.lastSync||0}}catch(e){}
+let syncStart=0,dirtyAt=0,dirty=false,lastSync=0,syncing=false,again=false,err='',timer=null,rev=0,tick=0;
+try{const s=JSON.parse(localStorage.getItem(LS)||'null');if(s&&s.lists&&s.items){store={lists:s.lists,items:s.items};dirty=!!s.dirty;dirtyAt=dirty?Date.now():0;lastSync=s.lastSync||0}}catch(e){}
 try{Object.assign(cfg,JSON.parse(localStorage.getItem(CFG)||'{}'))}catch(e){}
 const persist=()=>{try{localStorage.setItem(LS,JSON.stringify({lists:store.lists,items:store.items,dirty,lastSync}))}catch(e){}};
 const saveCfg=()=>{try{localStorage.setItem(CFG,JSON.stringify(cfg))}catch(e){}};
@@ -228,7 +228,7 @@ const now=()=>{const t=Date.now();tick=t>tick?t:tick+1;return tick};
 const listeners={lists:[],items:[]};
 function snap(name){const docs=Object.values(store[name]).filter(r=>!r.deleted).map(r=>{const{id,updatedAt,deleted,...rest}=r;return{id,data:()=>rest}});return{docs,size:docs.length,metadata:{fromCache:false,hasPendingWrites:false}}}
 function emit(n){const s=snap(n);listeners[n].forEach(f=>{try{f(s)}catch(e){console.error(e)}})}
-function write(col,id,fn){const rec=fn(store[col][id])||{};rec.id=id;rec.updatedAt=now();store[col][id]=rec;rev++;dirty=true;persist();emit(col);status();schedule(1200)}
+function write(col,id,fn){const rec=fn(store[col][id])||{};rec.id=id;rec.updatedAt=now();store[col][id]=rec;rev++;if(!dirty)dirtyAt=Date.now();dirty=true;persist();emit(col);status();schedule(1200)}
 const db={collection:name=>({onSnapshot(cb){listeners[name].push(cb);cb(snap(name));return()=>{const i=listeners[name].indexOf(cb);if(i>=0)listeners[name].splice(i,1)}}}),
  doc:path=>{const[col,id]=path.split('/');return{
   set:async d=>write(col,id,()=>({...d})),
@@ -247,17 +247,18 @@ const api=()=>'https://api.github.com/repos/'+cfg.repo+'/contents/'+cfg.path;
 const hdr=()=>({Authorization:'Bearer '+cfg.token,Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'});
 const b64d=s=>new TextDecoder().decode(Uint8Array.from(atob(s.replace(/\n/g,'')),c=>c.charCodeAt(0)));
 const b64e=t=>{let s='';new TextEncoder().encode(t).forEach(x=>s+=String.fromCharCode(x));return btoa(s)};
+const tfetch=(u,o={})=>{const c=new AbortController(),t=setTimeout(()=>c.abort(),20000);return fetch(u,{...o,signal:c.signal}).finally(()=>clearTimeout(t))};
 const authErr=()=>Object.assign(new Error('auth'),{auth:true});
-async function pull(){const r=await fetch(api(),{headers:hdr(),cache:'no-store'});
+async function pull(){const r=await tfetch(api(),{headers:hdr(),cache:'no-store'});
  if(r.status===404)return{sha:null,m:{lists:{},items:{}}};
  if(r.status===401||r.status===403)throw authErr();
  if(!r.ok)throw new Error('pull '+r.status);const j=await r.json();return{sha:j.sha,m:parse(b64d(j.content))}}
-function push(m,sha){return fetch(api(),{method:'PUT',headers:{...hdr(),'Content-Type':'application/json'},body:JSON.stringify({message:'Leaf It To Me sync',content:b64e(serialize(m)),...(sha?{sha}:{})})})}
+function push(m,sha){return tfetch(api(),{method:'PUT',headers:{...hdr(),'Content-Type':'application/json'},body:JSON.stringify({message:'Leaf It To Me sync',content:b64e(serialize(m)),...(sha?{sha}:{})})})}
 async function sync(){
  if(!cfg.token){status();return}
- if(syncing){again=true;return}
+ if(syncing){again=true;if(Date.now()-syncStart>60000)syncing=false;else return}
  if(!navigator.onLine){status();return}
- syncing=true;err='';status();
+ syncing=true;syncStart=Date.now();err='';status();
  try{for(let i=0;i<4;i++){
    const{sha,m:remote}=await pull();
    const merged=merge(store,remote);purge(merged);
@@ -279,14 +280,15 @@ function statusText(){
  if(err==='auth')return'Sync needs a new token. Tap to fix';
  if(!navigator.onLine)return dirty?'Offline. Saved on this phone, will sync later':'Offline. Showing your saved lists';
  if(err)return'Could not sync. Saved on this phone. Tap to retry';
+ if(dirty&&Date.now()-dirtyAt>120000)return'Changes not synced yet. Tap to retry';
  if(dirty)return'Saved on this phone, syncing soon';
  return'Synced '+ago(lastSync)}
-function status(){const t=statusText(),a=$('syncTxt'),b=$('setStatus'),btn=$('syncBtn');if(a)a.textContent=t;if(b)b.textContent=t;if(btn)btn.classList.toggle('problem',!cfg.token||err==='auth'||(!!err&&navigator.onLine))}
+function status(){const t=statusText(),a=$('syncTxt'),b=$('setStatus'),btn=$('syncBtn');if(a)a.textContent=t;if(b)b.textContent=t;if(btn)btn.classList.toggle('problem',!cfg.token||err==='auth'||(!!err&&navigator.onLine)||(dirty&&Date.now()-dirtyAt>120000))}
 /* settings overlay */
 let closeT=null;
 function openSet(){const ov=$('settings');$('setRepo').value=cfg.repo;$('setToken').value='';status();clearTimeout(closeT);ov.classList.remove('closing','open');ov.hidden=false;void ov.offsetWidth;requestAnimationFrame(()=>requestAnimationFrame(()=>ov.classList.add('open')))}
 function closeSet(){const ov=$('settings');if(ov.hidden)return;ov.classList.remove('open');ov.classList.add('closing');closeT=setTimeout(()=>{ov.hidden=true;ov.classList.remove('closing')},280)}
-$('syncBtn').addEventListener('click',()=>{if(cfg.token&&err==='net'&&!syncing)sync();openSet()});
+$('syncBtn').addEventListener('click',()=>{if(cfg.token&&!syncing)sync();openSet()});
 $('setClose').addEventListener('click',closeSet);
 $('settings').addEventListener('click',closeSet);
 $('setPanel').addEventListener('click',e=>e.stopPropagation());
