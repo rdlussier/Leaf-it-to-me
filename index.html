@@ -335,7 +335,7 @@ const raw=(s)=>{const t=document.createElement('template');t.innerHTML=s;return 
 
 let db=null,lists=[],items=[],loaded={lists:false,items:false},shown=false,lastSig='';
 function changed(){const sig=JSON.stringify([lists,items]);if(sig===lastSig)return false;lastSig=sig;return true}
-let closeT=null,intro=0,addTo='',drag=null,pressing=false,suppressClick=false,openList=null,editing=null,renaming=null,sureDel=null,openDone={},pending=false,lastList='';
+let closeT=null,intro=0,addTo='',drag=null,pressing=false,suppressClick=false,openList=null,editing=null,renaming=null,sureDel=null,openDone={},pending=false,lastList='',freshList=null;
 try{lastList=localStorage.getItem('moss-last')||''}catch(e){}
 
 const todayStr=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
@@ -350,6 +350,7 @@ function render(){
   const a=document.activeElement;
   if(a&&a.closest&&a.closest('#sheet .edit,.rename')&&pending!=='force'){pending=true;return}
   pending=false;
+  const wasAdd=!!(a&&a.id==='sheetAdd'),addVal=wasAdd?a.value:'';
   const ready=loaded.lists&&loaded.items;if(ready)shown=true;
   const vis=(ready?lists:[]).filter(l=>!l.hideChip);
   if(!vis.some(l=>l.id===addTo))addTo=vis.some(l=>l.id===lastList)?lastList:(vis[0]&&vis[0].id)||'';
@@ -365,9 +366,9 @@ function render(){
     const badge=h('button',{class:'badge',type:'button','aria-label':'Change icon',style:'border:0',onclick:()=>{const free=ICON_ORDER.filter(i=>i===l.icon||!lists.some(o=>o!==l&&o.icon===i));const nx=free[(free.indexOf(l.icon)+1)%free.length];if(nx&&nx!==l.icon)wr(db.doc('lists/'+l.id).update({icon:nx}))}});
     badge.append(raw(svg(l.icon)));
     const title=renaming===l.id
-      ?h('input',{class:'rename',type:'text',value:l.title,'aria-label':'List name',style:'flex:1;min-width:0;font:inherit;font-size:19px;padding:8px 10px;border-radius:12px;border:2px solid var(--line);background:var(--bg);color:var(--ink)',
+      ?h('input',{class:'rename',type:'text',value:freshList===l.id?'':l.title,placeholder:'New list','aria-label':'List name',style:'flex:1;min-width:0;font:inherit;font-size:19px;padding:8px 10px;border-radius:12px;border:2px solid var(--line);background:var(--bg);color:var(--ink)',
          onkeydown:e=>{if(e.key==='Enter')e.target.blur()},
-         onblur:e=>{const v=e.target.value.trim();renaming=null;if(v&&v!==l.title)wr(db.doc('lists/'+l.id).update({title:v}));pending='force';render()}})
+         onblur:e=>{const v=e.target.value.trim();renaming=null;freshList=null;if(v&&v!==l.title)wr(db.doc('lists/'+l.id).update({title:v}));pending='force';render()}})
       :h('h2',{onclick:()=>{renaming=l.id;pending='force';render();const i=document.querySelector('.rename');i&&i.focus()}},l.title);
     const delBtn=h('button',{class:'icon-btn',type:'button','aria-label':sureDel===l.id?'Tap again to delete list':'Delete list',style:sureDel===l.id?'background:var(--cap);color:#fff':'',
       onclick:()=>{if(sureDel===l.id){sureDel=null;closeAll();mine.forEach(i=>wr(db.doc('items/'+i.id).delete()));wr(db.doc('lists/'+l.id).delete())}else{sureDel=l.id;render();setTimeout(()=>{if(sureDel===l.id){sureDel=null;render()}},3500)}}});
@@ -408,12 +409,13 @@ function render(){
     const ol=lists.find(x=>x.id===openList)||{};
     const inp=h('input',{type:'text',id:'sheetAdd',placeholder:'Plant one more here...',autocomplete:'off','aria-label':'Add item'});
     const add=()=>{const v=inp.value.trim();if(!v)return;inp.value='';wr(db.doc('items/'+uid()).set({listId:openList,text:v,note:'',done:false,due:'',order:Date.now()}))};
-    inp.addEventListener('keydown',e=>{if(e.key==='Enter')add()});
-    openCard.append(h('div',{class:'sadd'},inp,h('button',{class:'go',type:'button',onclick:add},'Add')));
+    inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();add();inp.focus()}});
+    openCard.append(h('div',{class:'sadd'},inp,h('button',{class:'go',type:'button',onmousedown:e=>e.preventDefault(),onclick:()=>{add();inp.focus()}},'Add')));
     sh.append(h('div',{class:'panel',onclick:e=>e.stopPropagation()},h('div',{class:'sbar'},
       h('button',{class:'tog',type:'button',role:'switch','aria-checked':ol.hideChip?'false':'true',onclick:()=>wr(db.doc('lists/'+ol.id).update({hideChip:!ol.hideChip}))},h('span',{class:'knob'}),'Show in quick-add'),
       h('button',{class:'close',type:'button',onclick:closeAll},'Close')),openCard));
     if(sh.hidden||sh.classList.contains('closing')){clearTimeout(closeT);sh.classList.remove('closing','open');sh.hidden=false;void sh.offsetWidth;requestAnimationFrame(()=>requestAnimationFrame(()=>sh.classList.add('open')))}
+    if(wasAdd){inp.value=addVal;inp.focus()}
   } else {if(openList&&loaded.lists)openList=null;
     if(!sh.hidden&&!sh.classList.contains('closing')){sh.classList.remove('open');sh.classList.add('closing');closeT=setTimeout(()=>{sh.hidden=true;sh.classList.remove('closing');sh.replaceChildren()},280)}}
   if(loaded.lists&&loaded.items&&!intro){intro=1;setTimeout(()=>$('lists').classList.remove('first'),900)}
@@ -482,14 +484,18 @@ function openTile(id){openList=id;try{location.hash='open'}catch(e){}pending='fo
 function toggleEdit(id){if(editing===id)closeEdit();else{const was=editing;editing=id;if(!was){try{location.hash='edit'}catch(e){}}}pending='force';render()}
 function closeEdit(){if(!editing)return;editing=null;if(hs()==='#edit'){try{history.back()}catch(e){}}}
 function closeAll(){const n=hs()==='#edit'?2:hs()==='#open'?1:0;openList=null;editing=null;sureDel=null;pending='force';render();if(n){try{history.go(-n)}catch(e){}}}
-window.addEventListener('hashchange',()=>{const h=hs();if(h==='#edit')return;if(h==='#open'){if(editing){editing=null;sureDel=null}}else if(openList||editing){openList=null;editing=null;sureDel=null}pending='force';render()});
+window.addEventListener('hashchange',()=>{const h=hs();if(h==='#open'&&openList&&renaming)return;if(h==='#edit')return;if(h==='#open'){if(editing){editing=null;sureDel=null}}else if(openList||editing){openList=null;editing=null;sureDel=null}pending='force';render()});
 if(hs()){try{history.replaceState(null,'',location.pathname+location.search)}catch(e){}}
 $('sheet').addEventListener('click',closeAll);
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&openList)closeAll()});
 $('newList').addEventListener('click',()=>{
   if(!db)return;const id='l'+uid();
-  renaming=id;
-  wr(db.doc('lists/'+id).set({title:'New list',icon:pickIcon(),color:pickColor(),order:Date.now()})).then(()=>{pending='force';render();const i=document.querySelector('.rename');i&&(i.focus(),i.select())});
+  renaming=id;freshList=id;openList=id;try{location.hash='open'}catch(e){}
+  /* Focus a proxy input inside this tap so Android opens the keyboard, then hand focus to the real title field. */
+  const px=document.createElement('input');px.setAttribute('aria-hidden','true');px.style.cssText='position:fixed;top:0;left:0;opacity:0;width:1px;height:1px;font-size:16px';
+  document.body.append(px);px.focus();
+  const go=()=>{pending='force';render();const i=document.querySelector('.rename');if(i)i.focus();px.remove()};
+  wr(db.doc('lists/'+id).set({title:'New list',icon:pickIcon(),color:pickColor(),order:Date.now()})).then(go);
 });
 
 (()=>{
